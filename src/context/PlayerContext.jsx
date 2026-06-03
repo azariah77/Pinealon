@@ -86,6 +86,16 @@ export function PlayerProvider({ children }) {
         audio.addEventListener("play", onPlay);
         audio.addEventListener("pause", onPause);
         audio.addEventListener("ended", onEnded);
+        
+        const onError = (e) => {
+            const mediaError = audio.error;
+            console.error("🔴 Audio playback error:", {
+                code: mediaError?.code,
+                message: mediaError?.message,
+                src: audio.src?.substring(0, 100),
+            });
+        };
+        audio.addEventListener("error", onError);
 
         return () => {
             audio.removeEventListener("timeupdate", onTimeUpdate);
