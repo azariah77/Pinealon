@@ -24,6 +24,7 @@ import {
 import { Mail, Lock, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import MainApp from "./pages/MainApp";
+import { PlayerProvider } from "./context/PlayerContext.jsx";
 
 // Orbitron font
 const link = document.createElement("link");
@@ -67,13 +68,24 @@ export default function App() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+      // Only set user if email is verified OR if they're using Google sign-in
       if (u) {
-        console.log("Logged in:", u.email);
-        setError("");
-        setEmailVerificationSent(false);
+        const isGoogleUser = u.providerData.some(p => p.providerId === 'google.com');
+
+        if (u.emailVerified || isGoogleUser) {
+          setUser(u);
+          console.log("Logged in:", u.email);
+          setError("");
+          setEmailVerificationSent(false);
+        } else {
+          // Email not verified yet - keep them on login screen
+          setUser(null);
+          console.log("User not verified yet:", u.email);
+        }
+      } else {
+        setUser(null);
       }
-      setLoadingAuth(false); // 🔥 auth check finished
+      setLoadingAuth(false);
     });
     return () => unsub();
   }, []);
@@ -364,10 +376,10 @@ export default function App() {
         <motion.h1
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: [0, 1, 0], scale: [0.8, 1, 0.8] }}
-          transition={{ 
-            duration: 2, 
-            repeat: Infinity, 
-            ease: "easeInOut" 
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            ease: "easeInOut"
           }}
           className="text-5xl font-bold text-[#4263eb] drop-shadow-[0_0_20px_#4263eb80]"
           style={{ fontFamily: "Orbitron, sans-serif" }}
@@ -380,7 +392,11 @@ export default function App() {
 
   // If logged in → show MainApp
   if (user && !showLinkPrompt) {
-    return <MainApp auth={auth} signOut={signOut} />;
+    return (
+      <PlayerProvider>
+        <MainApp auth={auth} signOut={signOut} />
+      </PlayerProvider>
+    );
   }
 
   // Email verification sent screen
