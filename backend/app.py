@@ -1,5 +1,5 @@
 # backend/app.py — Pinealon v2: Search + Stream + Async Convert + Cache (Refactored for Client-Side 432Hz)
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_file, after_this_request
 from flask_cors import CORS
 import os
 import subprocess
@@ -45,14 +45,14 @@ class YouTubeAPI:
             stream_url = self.get_stream_url(video_id)
             tmp_wav = str(TEMP_DIR / f"tune_{uuid.uuid4().hex}.wav")
             
-            # Download exactly 10 seconds of the stream using ffmpeg (virtually instant)
+            # Download exactly 10 seconds of the stream using ffmpeg
             logger.info(f"Downloading 10s chunk for tuning detection: {video_id}")
             subprocess.run(["ffmpeg", "-i", stream_url, "-t", "10", "-y", tmp_wav], 
                            capture_output=True, check=True)
             
-            # Run the user's advanced detection script
-            logger.info("Running detect_tuning_simple...")
-            result = detect_tuning_simple(tmp_wav, duration=10)
+            # Run the tuning detector
+            logger.info("Running librosa-based estimate_tuning...")
+            result = detect_tuning_simple(tmp_wav)
             
             # Cleanup
             try: os.remove(tmp_wav)

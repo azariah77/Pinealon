@@ -1,7 +1,10 @@
 // src/services/api.js
 // Centralised API client for the Pinealon Flask backend.
+//
+// In development: Vite proxies /api/* → http://localhost:3001/api/*
+// In production:  VITE_API_URL should be set to the deployed backend URL.
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 const PIPED_INSTANCES = [
     "https://pipedapi.kavin.rocks",
@@ -25,7 +28,7 @@ async function json(res) {
 
 /** @returns {{ videoId, title, artist, duration, thumbnail, cached }[] } */
 export async function searchYouTube(query, limit = 12) {
-    // Try Piped APIs first for 0-latency search that bypasses Hugging Face
+    // Try Piped APIs first for low-latency search (search only, not streaming)
     for (const instance of PIPED_INSTANCES) {
         try {
             const res = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`);
@@ -50,10 +53,8 @@ export async function searchYouTube(query, limit = 12) {
         }
     }
 
-    // Fallback to Hugging Face backend
-    const res = await fetch(
-        `${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`
-    );
+    // Fallback to our own backend if all Piped APIs fail
+    const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`);
     return json(res);
 }
 
@@ -67,35 +68,18 @@ export async function getTuning(videoId) {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming (Direct Piped API for 0-Latency)
+// Streaming
 // ---------------------------------------------------------------------------
 
-/** 
- * Gets the raw audio URL directly from a public Piped instance, bypassing our backend.
- * This ensures 0-latency and no Hugging Face IP bans.
+/**
+ * Returns the URL to stream a video's audio through our own Flask proxy.
+ *
+ * ⚠️  We do NOT use Piped direct URLs for streaming.
+ * Piped returns raw googlevideo.com CDN URLs which the browser CANNOT fetch
+ * cross-origin (YouTube sets strict CORS headers). Our Flask proxy at
+ * /api/stream/<videoId> handles the yt-dlp extraction and streams the audio
+ * with proper CORS + Range support.
  */
-export async function getDirectAudioUrl(videoId) {
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            const res = await fetch(`${instance}/streams/${videoId}`);
-            if (!res.ok) continue;
-            const data = await res.json();
-            
-            // Find the best audio stream (preferably webm or m4a)
-            if (data && data.audioStreams && data.audioStreams.length > 0) {
-                // Sort by bitrate descending
-                const streams = data.audioStreams.sort((a, b) => b.bitrate - a.bitrate);
-                return streams[0].url;
-            }
-        } catch (e) {
-            console.warn(`Piped instance ${instance} failed, trying next...`);
-        }
-    }
-    
-    // Fallback to our backend if all Piped APIs fail
-    return `${API_BASE}/stream/${videoId}`;
-}
-
 export function getStreamUrl(videoId) {
     return `${API_BASE}/stream/${videoId}`;
 }
@@ -108,8 +92,6 @@ export function getFileUrl(filename) {
 export function getDownloadUrl(filename) {
     return `${API_BASE}/download/${filename}`;
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Health

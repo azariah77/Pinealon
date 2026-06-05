@@ -5,7 +5,7 @@ import { usePlayer } from "../../context/PlayerContext.jsx";
 import { ProgressBar, PlaybackButtons, VolumeControl } from "./PlayerControls.jsx";
 
 export default function MiniPlayer({ favoriteSongs, onToggleFavorite, onExpand, onShowQueue }) {
-    const { currentSong, isPlaying, is432Hz, isConverting } = usePlayer();
+    const { currentSong, isPlaying, is432Hz, isConverting, isBuffering } = usePlayer();
 
     const isFav = favoriteSongs?.some((s) => s.id === currentSong?.id);
 
@@ -44,26 +44,40 @@ export default function MiniPlayer({ favoriteSongs, onToggleFavorite, onExpand, 
                                             <Music size={20} className="text-white" />
                                         </div>
                                     )}
-                                    {/* 432Hz badge */}
-                                    <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center transition-all ${is432Hz ? "bg-emerald-500 opacity-100" : isConverting ? "bg-indigo-500 opacity-100" : "opacity-0"
+                                    {/* Buffering overlay on thumbnail */}
+                                    {isBuffering && (
+                                        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50">
+                                            <Loader2 size={14} className="text-white animate-spin" />
+                                        </div>
+                                    )}
+                                    {/* 432Hz / analyzing badge */}
+                                    {!isBuffering && (
+                                        <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+                                            is432Hz ? "bg-emerald-500 opacity-100"
+                                            : isConverting ? "bg-indigo-500 opacity-100"
+                                            : "opacity-0"
                                         }`}>
-                                        {isConverting ? (
-                                            <Loader2 size={9} className="text-white animate-spin" />
-                                        ) : (
-                                            <Zap size={9} className="text-white fill-current" />
-                                        )}
-                                    </div>
+                                            {isConverting ? (
+                                                <Loader2 size={9} className="text-white animate-spin" />
+                                            ) : (
+                                                <Zap size={9} className="text-white fill-current" />
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-semibold text-white truncate">{currentSong.title}</p>
                                     <div className="flex items-center gap-1.5">
                                         <p className="text-xs text-gray-500 truncate">{currentSong.artist}</p>
-                                        {is432Hz && (
+                                        {is432Hz && !isConverting && (
                                             <span className="text-[10px] text-emerald-400 font-medium shrink-0">432Hz</span>
                                         )}
                                         {isConverting && !is432Hz && (
                                             <span className="text-[10px] text-indigo-400 font-medium shrink-0">analyzing...</span>
+                                        )}
+                                        {isBuffering && (
+                                            <span className="text-[10px] text-yellow-400 font-medium shrink-0">buffering...</span>
                                         )}
                                     </div>
                                 </div>

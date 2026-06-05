@@ -19,10 +19,11 @@ const INITIAL_STATE = {
     isMuted: false,
     isRepeat: false,
     isShuffle: false,
-    is432Hz: false,       // whether the currently playing song is perfectly tuned to 432Hz
+    is432Hz: false,       // whether the currently playing song is pitch-shifted to 432Hz
     tuningDetails: null,  // the confidence and detection method reasoning
     isConverting: false,  // whether we are currently analyzing tuning
     conversionProgress: null, // text state e.g., "Analyzing tuning..."
+    isBuffering: false,   // true when audio is stalled/buffering
 };
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,8 @@ function reducer(state, action) {
             return { ...state, is432Hz: action.value, tuningDetails: action.details ?? null };
         case "SET_CONVERTING":
             return { ...state, isConverting: action.value, conversionProgress: action.progress ?? null };
+        case "SET_BUFFERING":
+            return { ...state, isBuffering: action.value };
         default:
             return state;
     }
@@ -69,7 +72,7 @@ const PlayerContext = createContext(null);
 export function PlayerProvider({ children }) {
     const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
     const audioRef = useRef(new Audio());
-    const conversionPollRef = useRef(null);
+    const handleSongEndRef = useRef(null);
 
     // ── Audio element wiring ────────────────────────────────────────────────
 
@@ -77,25 +80,31 @@ export function PlayerProvider({ children }) {
         const audio = audioRef.current;
 
         const onTimeUpdate = () => dispatch({ type: "SET_TIME", value: audio.currentTime });
-        const onDuration = () => dispatch({ type: "SET_DURATION", value: audio.duration });
-        const onPlay = () => dispatch({ type: "SET_PLAYING", value: true });
-        const onPause = () => dispatch({ type: "SET_PLAYING", value: false });
-        const onEnded = () => handleSongEndRef.current?.();
+        const onDuration   = () => dispatch({ type: "SET_DURATION", value: audio.duration });
+        const onPlay       = () => dispatch({ type: "SET_PLAYING", value: true });
+        const onPause      = () => dispatch({ type: "SET_PLAYING", value: false });
+        const onEnded      = () => handleSongEndRef.current?.();
+        const onWaiting    = () => dispatch({ type: "SET_BUFFERING", value: true });
+        const onCanPlay    = () => dispatch({ type: "SET_BUFFERING", value: false });
 
-        audio.addEventListener("timeupdate", onTimeUpdate);
-        audio.addEventListener("durationchange", onDuration);
-        audio.addEventListener("play", onPlay);
-        audio.addEventListener("pause", onPause);
-        audio.addEventListener("ended", onEnded);
-        
-        const onError = (e) => {
+        const onError = () => {
             const mediaError = audio.error;
             console.error("🔴 Audio playback error:", {
                 code: mediaError?.code,
                 message: mediaError?.message,
                 src: audio.src?.substring(0, 100),
             });
+            dispatch({ type: "SET_PLAYING", value: false });
+            dispatch({ type: "SET_BUFFERING", value: false });
         };
+
+        audio.addEventListener("timeupdate", onTimeUpdate);
+        audio.addEventListener("durationchange", onDuration);
+        audio.addEventListener("play", onPlay);
+        audio.addEventListener("pause", onPause);
+        audio.addEventListener("ended", onEnded);
+        audio.addEventListener("waiting", onWaiting);
+        audio.addEventListener("canplay", onCanPlay);
         audio.addEventListener("error", onError);
 
         return () => {
@@ -104,6 +113,9 @@ export function PlayerProvider({ children }) {
             audio.removeEventListener("play", onPlay);
             audio.removeEventListener("pause", onPause);
             audio.removeEventListener("ended", onEnded);
+            audio.removeEventListener("waiting", onWaiting);
+            audio.removeEventListener("canplay", onCanPlay);
+            audio.removeEventListener("error", onError);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -112,9 +124,6 @@ export function PlayerProvider({ children }) {
     useEffect(() => {
         audioRef.current.volume = state.isMuted ? 0 : state.volume;
     }, [state.volume, state.isMuted]);
-
-    // ── Stable ref for handleSongEnd (avoids stale closure in event listener)
-    const handleSongEndRef = useRef(null);
 
     // ── Core: Play a song ───────────────────────────────────────────────────
 
@@ -129,51 +138,77 @@ export function PlayerProvider({ children }) {
             const songObj = playlistId ? { ...song, playlistId } : song;
             const audio = audioRef.current;
 
-            // Reset state
-            dispatch({ type: "SET_SONG", song: songObj, is432Hz: false, details: null });
-            dispatch({ type: "SET_CONVERTING", value: true, progress: "Analyzing tuning..." });
-            
-            // Get the raw audio URL instantly from Piped APIs
-            const directUrl = await api.getDirectAudioUrl(song.videoId);
-            audio.src = directUrl;
-            audio.playbackRate = 1.0;
-            audio.preservesPitch = true;
-            if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = true;
-            if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = true;
-            
-            audio.load();
-            audio.play().catch(() => { });
+            // Reset state immediately
+            dispatch({ type: "SET_SONG", song: songObj, is432Hz: false });
+            dispatch({ type: "SET_TIME", value: 0 });
+            dispatch({ type: "SET_DURATION", value: 0 });
+            dispatch({ type: "SET_BUFFERING", value: true });
 
-            // Fetch tuning detection in the background
+            // ─── IMPORTANT: We ALWAYS route through our own Flask backend proxy.
+            //
+            // Why NOT use Piped direct URLs?
+            // Piped returns raw YouTube CDN URLs (googlevideo.com). When the browser
+            // tries to fetch these as audio.src, YouTube's CDN blocks cross-origin
+            // requests (CORS) from a web page. The request gets rejected or redirected,
+            // leaving the audio element with no data → stutter, silence, or "MEDIA_ERR_SRC_NOT_SUPPORTED".
+            //
+            // Our Flask /api/stream/<videoId> proxy:
+            // 1. Runs on the same origin as the API (localhost:3001)
+            // 2. Has CORS headers set to allow *
+            // 3. Supports Range requests so the browser can seek
+            // 4. Streams audio in chunks so playback starts fast
+            //
+            // Result: clean, uninterrupted audio with full seek support.
+            const streamUrl = api.getStreamUrl(song.videoId);
+
+            // Apply pitch shift to 432Hz BEFORE playing.
+            // 432/440 = 0.98181... — slows playback by ~1.8%, dropping pitch by ~32 cents.
+            // We do this immediately so there is no mid-stream stutter from a late rate change.
+            // preservesPitch = false means the pitch actually drops with the rate (desired behavior).
+            audio.preservesPitch = false;
+            if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
+            if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
+            audio.playbackRate = 432 / 440; // 0.98181818...
+
+            audio.src = streamUrl;
+            audio.load();
+
+            // Use "canplay" to trigger play so we know the browser has buffered enough
+            const startPlayback = () => {
+                audio.play().catch((err) => {
+                    console.warn("Autoplay blocked or stream error:", err);
+                    dispatch({ type: "SET_PLAYING", value: false });
+                });
+                audio.removeEventListener("canplay", startPlayback);
+            };
+            audio.addEventListener("canplay", startPlayback, { once: true });
+
+            // Mark as 432Hz right away (we know we're always shifting)
+            dispatch({ type: "SET_432HZ", value: true, details: { tuning: "440Hz→432Hz", reasoning: "Client-side pitch shift applied" } });
+
+            // Now run tuning detection in the background (for display accuracy only —
+            // it no longer changes playback, just updates the badge text)
+            dispatch({ type: "SET_CONVERTING", value: true, progress: "Analyzing tuning..." });
             try {
                 const res = await api.getTuning(song.videoId);
                 dispatch({ type: "SET_CONVERTING", value: false });
                 
-                // If the song is already 432Hz natively, we do nothing.
                 if (res.tuning === "432Hz") {
-                    console.log("Song is natively 432Hz!", res);
-                    dispatch({ type: "SET_432HZ", value: true, details: res });
+                    console.log("Song is natively 432Hz! Reverting pitch shift.");
+                    audio.playbackRate = 1.0;
+                    audio.preservesPitch = true;
+                    if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = true;
+                    if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = true;
+                    dispatch({ type: "SET_432HZ", value: true, details: { ...res, reasoning: "Native 432Hz detected, no shift needed" } });
                 } else {
-                    // It's 440Hz or unknown: Drop frequency via playbackRate to instantly hit 432Hz
-                    console.log("Song is 440Hz. Pitch shifting to 432Hz via playbackRate...", res);
-                    audio.playbackRate = 432 / 440; // 0.981818
-                    audio.preservesPitch = false;
-                    if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
-                    if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
-                    
                     dispatch({ type: "SET_432HZ", value: true, details: res });
                 }
+                
+                console.log("Tuning detection result:", res);
             } catch (err) {
-                console.error("Tuning detection failed, defaulting to pitch shift:", err);
+                console.warn("Tuning detection failed (non-critical):", err);
                 dispatch({ type: "SET_CONVERTING", value: false });
-                
-                // Fallback to applying pitch shift just in case
-                audio.playbackRate = 432 / 440;
-                audio.preservesPitch = false;
-                if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
-                if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
-                
-                dispatch({ type: "SET_432HZ", value: true, details: { reasoning: "Detection failed, forced 432Hz" } });
+                // Playback is unaffected — we already applied the shift.
             }
         },
         []
@@ -246,6 +281,10 @@ export function PlayerProvider({ children }) {
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
+    // Duration shown to user is "real" track duration at 432Hz rate.
+    // playbackRate = 432/440, so real elapsed time = currentTime / playbackRate
+    // and total duration needs no correction since duration in the audio element
+    // is unchanged (it's still the container length).
     const formatTime = (s) => {
         if (!s || isNaN(s)) return "0:00";
         return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

@@ -191,7 +191,7 @@ export default function MainApp() {
   // ── Download song ────────────────────────────────────────────────────────
   const handleDownloadSong = async (song) => {
     // Basic download trigger
-    window.open(song.url, "_blank");
+    window.open(`http://localhost:3001/api/download/${song.videoId}`, "_blank");
   };
 
   // ── Derived ────────────────────────────────────────────────────────────
