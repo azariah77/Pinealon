@@ -1,0 +1,38 @@
+name: Sync Backend to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**' # Only trigger when backend files change
+  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Push backend directory to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Set up git config
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          
+          # Clone the Hugging Face Space
+          git clone https://joshuaazz:$HF_TOKEN@huggingface.co/spaces/joshuaazz/Pinealon-Backend hf-space
+          
+          # Copy the backend files over
+          cp -r backend/* hf-space/
+          
+          # Commit and push
+          cd hf-space
+          git add .
+          git commit -m "Auto-sync backend from GitHub" || echo "No changes to commit"
+          git push https://joshuaazz:$HF_TOKEN@huggingface.co/spaces/joshuaazz/Pinealon-Backend main
