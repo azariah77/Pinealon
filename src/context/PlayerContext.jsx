@@ -113,6 +113,9 @@ export function PlayerProvider({ children }) {
         audioRef.current.volume = state.isMuted ? 0 : state.volume;
     }, [state.volume, state.isMuted]);
 
+    // ── Stable ref for handleSongEnd (avoids stale closure in event listener)
+    const handleSongEndRef = useRef(null);
+
     // ── Core: Play a song ───────────────────────────────────────────────────
 
     const playSong = useCallback(

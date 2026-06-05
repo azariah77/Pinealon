@@ -11,7 +11,6 @@ import { signOut } from "firebase/auth";
 import { PinealonBackend } from "../backend-services.js";
 import { usePlayer } from "../context/PlayerContext.jsx";
 import { useSearch } from "../hooks/useSearch.js";
-import { useProcessingQueue } from "../hooks/useProcessingQueue.js";
 
 // Components
 import SearchBar from "../components/SearchBar.jsx";
@@ -20,7 +19,6 @@ import PlaylistCard from "../components/Playlist/PlaylistCard.jsx";
 import SongCard from "../components/SongCard.jsx";
 import MiniPlayer from "../components/Player/MiniPlayer.jsx";
 import FullPlayer from "../components/Player/FullPlayer.jsx";
-import ProcessingQueue from "../components/ProcessingQueue.jsx";
 
 // ── Sidebar nav items ──────────────────────────────────────────────────────
 
@@ -99,7 +97,6 @@ export default function MainApp() {
 
   // ── Hooks ─────────────────────────────────────────────────────────────
   const { query, results, isSearching, error: searchError, search, clearSearch } = useSearch();
-  const { items: queueItems, enqueue, dismiss: dismissQueueItem, activeCount } = useProcessingQueue();
   const { playSong, addToQueue, queue, queueIndex, isPlaying, currentSong, formatTime, currentTime, duration } = usePlayer();
 
   // ── Auth init ─────────────────────────────────────────────────────────
@@ -176,12 +173,8 @@ export default function MainApp() {
   // ── Add song to playlist (from search result) ─────────────────────────
   const handleAddSongToPlaylist = useCallback(async (song, playlist) => {
     if (!backend) return;
-    // Enqueue background conversion + save to Firestore
-    const result = await enqueue(song);
     const songData = {
       ...song,
-      convertedAudioUrl: result.fileUrl || null,
-      isConverted: !!result.fileUrl,
       addedAt: new Date(),
     };
     const added = await backend.addSongToPlaylist(playlist.id, songData);
@@ -193,12 +186,12 @@ export default function MainApp() {
     if (selectedPlaylist?.id === playlist.id) {
       setSelectedPlaylist((prev) => ({ ...prev, songs: [...(prev.songs || []), added] }));
     }
-  }, [backend, enqueue, selectedPlaylist]);
+  }, [backend, selectedPlaylist]);
 
   // ── Download song ────────────────────────────────────────────────────────
   const handleDownloadSong = async (song) => {
-    // Enqueue it with autoDownload: true, the hook will handle triggering window.open()
-    await enqueue(song, { autoDownload: true });
+    // Basic download trigger
+    window.open(song.url, "_blank");
   };
 
   // ── Derived ────────────────────────────────────────────────────────────
@@ -307,7 +300,7 @@ export default function MainApp() {
                 <h2 className="text-3xl font-bold text-white mb-2">
                   Discover Music in <span className="text-indigo-400">432Hz</span>
                 </h2>
-                <p className="text-gray-500 text-sm">Search any song and play it instantly. 432Hz conversion happens in the background.</p>
+                <p className="text-gray-500 text-sm">Search any song and play it instantly.</p>
               </div>
             )}
 
@@ -318,7 +311,6 @@ export default function MainApp() {
               query={query}
               isSearching={isSearching}
               error={searchError}
-              processingItems={queueItems}
               onAddToPlaylist={(song) => setSongForPlaylist(song)}
               onDownload={handleDownloadSong}
             />
@@ -393,7 +385,7 @@ export default function MainApp() {
                   <div className="text-center py-12 text-gray-600">
                     <Music size={40} className="mx-auto mb-3 opacity-30" />
                     <p>No custom playlists yet</p>
-                    <p className="text-sm mt-1">Create one to start adding 432Hz music!</p>
+                    <p className="text-sm mt-1">Create one to start adding music!</p>
                   </div>
                 )}
               </div>
@@ -473,57 +465,6 @@ export default function MainApp() {
         ))}
       </nav>
 
-      {/* ── Queue sidebar ─────────────────────────────────────── */}
-      <AnimatePresence>
-        {showQueue && (
-          <motion.div
-            initial={{ x: 320, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 320, opacity: 0 }}
-            className="fixed right-0 top-0 bottom-0 w-80 z-40 border-l border-white/8 bg-[#0f0f1c]/95 backdrop-blur-xl overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/8 bg-inherit">
-              <h3 className="font-semibold">Queue</h3>
-              <button onClick={() => setShowQueue(false)} className="p-1.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-3 space-y-1">
-              {queue.length === 0 ? (
-                <div className="text-center py-12 text-gray-600">
-                  <ListIcon size={36} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Queue is empty</p>
-                </div>
-              ) : queue.map((song, i) => (
-                <div
-                  key={`q-${song.id}-${i}`}
-                  className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors ${i === queueIndex ? "bg-indigo-500/15 border border-indigo-500/25" : "hover:bg-white/5"
-                    }`}
-                >
-                  {song.thumbnail && <img src={song.thumbnail} alt={song.title} className="w-10 h-10 rounded-lg object-cover shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{song.title}</p>
-                    <p className="text-[11px] text-gray-600 truncate">{song.artist}</p>
-                  </div>
-                  {i === queueIndex && isPlaying && (
-                    <div className="flex gap-0.5 shrink-0">
-                      {[0, 1, 2].map((k) => (
-                        <div
-                          key={k}
-                          className="w-0.5 rounded-full bg-indigo-400"
-                          style={{ animation: `soundbar 0.8s ease-in-out ${k * 0.15}s infinite alternate`, height: "8px" }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* ── Modals ────────────────────────────────────────────── */}
       <AnimatePresence>
         {songForPlaylist && (
@@ -541,7 +482,6 @@ export default function MainApp() {
         favoriteSongs={favoriteSongs}
         onToggleFavorite={toggleFavorite}
         onExpand={() => setShowExpandedPlayer(true)}
-        onShowQueue={() => setShowQueue(true)}
       />
       <FullPlayer
         isOpen={showExpandedPlayer}
@@ -549,9 +489,6 @@ export default function MainApp() {
         favoriteSongs={favoriteSongs}
         onToggleFavorite={toggleFavorite}
       />
-
-      {/* ── Processing toasts ─────────────────────────────────── */}
-      <ProcessingQueue items={queueItems} onDismiss={dismissQueueItem} />
     </div>
   );
 }
