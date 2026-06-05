@@ -130,8 +130,9 @@ export function PlayerProvider({ children }) {
             dispatch({ type: "SET_SONG", song: songObj, is432Hz: false, details: null });
             dispatch({ type: "SET_CONVERTING", value: true, progress: "Analyzing tuning..." });
             
-            // Instantly start playback (it will start at 440Hz initially while we analyze)
-            audio.src = api.getStreamUrl(song.videoId);
+            // Get the raw audio URL instantly from Piped APIs
+            const directUrl = await api.getDirectAudioUrl(song.videoId);
+            audio.src = directUrl;
             audio.playbackRate = 1.0;
             audio.preservesPitch = true;
             if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = true;

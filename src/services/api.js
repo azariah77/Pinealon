@@ -33,10 +33,43 @@ export async function getTuning(videoId) {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming
+// Streaming (Direct Piped API for 0-Latency)
 // ---------------------------------------------------------------------------
 
-/** Returns the URL the <audio> element should use for instant playback. */
+const PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.smnz.de",
+    "https://api.piped.projectsegfau.lt",
+    "https://pipedapi.lunar.icu",
+    "https://piped-api.garudalinux.org"
+];
+
+/** 
+ * Gets the raw audio URL directly from a public Piped instance, bypassing our backend.
+ * This ensures 0-latency and no Hugging Face IP bans.
+ */
+export async function getDirectAudioUrl(videoId) {
+    for (const instance of PIPED_INSTANCES) {
+        try {
+            const res = await fetch(`${instance}/streams/${videoId}`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            
+            // Find the best audio stream (preferably webm or m4a)
+            if (data && data.audioStreams && data.audioStreams.length > 0) {
+                // Sort by bitrate descending
+                const streams = data.audioStreams.sort((a, b) => b.bitrate - a.bitrate);
+                return streams[0].url;
+            }
+        } catch (e) {
+            console.warn(`Piped instance ${instance} failed, trying next...`);
+        }
+    }
+    
+    // Fallback to our backend if all Piped APIs fail
+    return `${API_BASE}/stream/${videoId}`;
+}
+
 export function getStreamUrl(videoId) {
     return `${API_BASE}/stream/${videoId}`;
 }
