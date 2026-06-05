@@ -50,9 +50,10 @@ class YouTubeAPI:
             subprocess.run(["ffmpeg", "-i", stream_url, "-t", "10", "-y", tmp_wav], 
                            capture_output=True, check=True)
             
-            # Run the tuning detector
+            # Run the highly optimized rubberband-compatible detection
             logger.info("Running librosa-based estimate_tuning...")
-            result = detect_tuning_simple(tmp_wav)
+            from audio_processor import get_tuning_info
+            result = get_tuning_info(tmp_wav)
             
             # Cleanup
             try: os.remove(tmp_wav)
@@ -158,6 +159,56 @@ def stream_audio(video_id):
         )
     except Exception as e:
         logger.error(f"Stream error for {video_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# ── Download ─────────────────────────────────────────────────────────────────
+@app.route("/api/download/<video_id>", methods=["GET"])
+def download_432hz(video_id):
+    """Downloads, converts to 432Hz via audio_processor, and returns the MP3"""
+    logger.info(f"Download request for {video_id}")
+    try:
+        from audio_processor import convert_to_432, DOWNLOAD_DIR
+        
+        final_mp3 = str(DOWNLOAD_DIR / f"{video_id}_432hz.mp3")
+        if os.path.exists(final_mp3):
+            logger.info("Serving from cache.")
+            return send_file(
+                final_mp3,
+                as_attachment=True,
+                download_name=f"pinealon_432hz_{video_id}.mp3",
+                mimetype="audio/mpeg"
+            )
+
+        stream_url = yt_api.get_stream_url(video_id)
+        
+        # Download stream to a temporary full-length audio file
+        tmp_input = str(TEMP_DIR / f"dl_input_{video_id}_{uuid.uuid4().hex}.mp3")
+        logger.info("Downloading full stream to temp file...")
+        subprocess.run([
+            "ffmpeg", "-i", stream_url, 
+            "-b:a", "192k", "-y", tmp_input
+        ], capture_output=True, check=True)
+        
+        # Convert to 432Hz using the advanced fallback logic (Rubberband -> FFmpeg)
+        logger.info("Running audio_processor convert_to_432...")
+        result = convert_to_432(tmp_input, final_mp3)
+        
+        # Cleanup temp input
+        try: os.remove(tmp_input)
+        except: pass
+        
+        if result.get("status") in ["ok", "cached", "copy"]:
+            return send_file(
+                final_mp3,
+                as_attachment=True,
+                download_name=f"pinealon_432hz_{video_id}.mp3",
+                mimetype="audio/mpeg"
+            )
+        else:
+            return jsonify({"error": result.get("message")}), 500
+            
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
