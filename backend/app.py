@@ -15,7 +15,7 @@ import math
 import numpy as np
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,6 +63,9 @@ class Enhanced432HzProcessor:
             "outtmpl": str(TEMP_DIR / "%(id)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
+            "legacyserverconnect": True,
+            "source_address": "0.0.0.0",
+            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         }
         self.available_methods = self._detect_available_methods()
         logger.info(f"Available conversion methods: {', '.join(self.available_methods)}")
@@ -101,9 +104,12 @@ class Enhanced432HzProcessor:
     def get_stream_url(self, video_id: str) -> str:
         """Return a direct audio stream URL (no download)."""
         ydl_opts = {
-            "format": "bestaudio[ext=webm]/bestaudio/best",
+            "format": "bestaudio/best",
             "quiet": True,
             "no_warnings": True,
+            "legacyserverconnect": True,
+            "source_address": "0.0.0.0",
+            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(
@@ -408,11 +414,21 @@ def check_cache(video_id):
 
 # ── Stream proxy ─────────────────────────────────────────────────────────────
 
-@app.route("/api/stream/<video_id>", methods=["GET"])
+@app.route("/api/stream/<video_id>", methods=["GET", "OPTIONS"])
 def stream_audio(video_id):
     """Proxy YouTube audio — enables instant play before conversion."""
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        resp = app.make_default_options_response()
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Range"
+        return resp
+
     try:
+        logger.info(f"Stream request for video: {video_id}")
         stream_url = processor.get_stream_url(video_id)
+        logger.info(f"Got stream URL for {video_id}, proxying...")
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -421,10 +437,14 @@ def stream_audio(video_id):
             ),
             "Range": request.headers.get("Range", "bytes=0-"),
         }
-        upstream = req_lib.get(stream_url, headers=headers, stream=True, timeout=30)
+        upstream = req_lib.get(stream_url, headers=headers, stream=True, timeout=60)
         resp_headers = {
             "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),
             "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Range",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length",
         }
         if "Content-Range" in upstream.headers:
             resp_headers["Content-Range"] = upstream.headers["Content-Range"]
@@ -432,7 +452,7 @@ def stream_audio(video_id):
             resp_headers["Content-Length"] = upstream.headers["Content-Length"]
 
         return Response(
-            upstream.iter_content(chunk_size=16384),
+            upstream.iter_content(chunk_size=8192),
             status=upstream.status_code,
             headers=resp_headers,
         )

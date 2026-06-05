@@ -1,6 +1,6 @@
 flask==2.3.3
 flask-cors==4.0.0
-yt-dlp
+yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@master
 requests
 numpy
 scipy
