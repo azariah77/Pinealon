@@ -19,9 +19,10 @@ const INITIAL_STATE = {
     isMuted: false,
     isRepeat: false,
     isShuffle: false,
-    is432Hz: false,       // whether the playing source is the 432Hz version
-    isConverting: false,  // background conversion in progress
-    conversionProgress: null, // null | "downloading" | "converting" | number%
+    is432Hz: false,       // whether the currently playing song is perfectly tuned to 432Hz
+    tuningDetails: null,  // the confidence and detection method reasoning
+    isConverting: false,  // whether we are currently analyzing tuning
+    conversionProgress: null, // text state e.g., "Analyzing tuning..."
 };
 
 // ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ function reducer(state, action) {
         case "TOGGLE_SHUFFLE":
             return { ...state, isShuffle: !state.isShuffle };
         case "SET_432HZ":
-            return { ...state, is432Hz: action.value };
+            return { ...state, is432Hz: action.value, tuningDetails: action.details ?? null };
         case "SET_CONVERTING":
             return { ...state, isConverting: action.value, conversionProgress: action.progress ?? null };
         default:
@@ -112,54 +113,11 @@ export function PlayerProvider({ children }) {
         audioRef.current.volume = state.isMuted ? 0 : state.volume;
     }, [state.volume, state.isMuted]);
 
-    // ── Stable ref for handleSongEnd (avoids stale closure in event listener)
-    const handleSongEndRef = useRef(null);
-
-    // ── Background-conversion polling ───────────────────────────────────────
-
-    const stopPolling = useCallback(() => {
-        if (conversionPollRef.current) {
-            clearInterval(conversionPollRef.current);
-            conversionPollRef.current = null;
-        }
-    }, []);
-
-    const startPolling = useCallback((jobId) => {
-        stopPolling();
-        conversionPollRef.current = setInterval(async () => {
-            try {
-                const status = await api.getJobStatus(jobId);
-                if (status.status === "completed") {
-                    stopPolling();
-                    dispatch({ type: "SET_CONVERTING", value: false });
-                    dispatch({ type: "SET_432HZ", value: true });
-
-                    // Seamless swap: save position → change src → restore position
-                    const audio = audioRef.current;
-                    const savedTime = audio.currentTime;
-                    const wasPlaying = !audio.paused;
-                    audio.src = api.getFileUrl(status.fileName);
-                    audio.load();
-                    audio.currentTime = savedTime;
-                    if (wasPlaying) audio.play().catch(() => { });
-                } else if (status.status === "error") {
-                    stopPolling();
-                    dispatch({ type: "SET_CONVERTING", value: false });
-                } else {
-                    dispatch({ type: "SET_CONVERTING", value: true, progress: status.status });
-                }
-            } catch {
-                // network hiccup — keep polling
-            }
-        }, 2500);
-    }, [stopPolling]);
-
     // ── Core: Play a song ───────────────────────────────────────────────────
 
     const playSong = useCallback(
         async (song, playlistSongs = [], playlistId = null) => {
             if (!song) return;
-            stopPolling();
 
             const newQueue = playlistSongs.length > 0 ? playlistSongs : [song];
             const idx = newQueue.findIndex((s) => s.id === song.id);
@@ -168,57 +126,53 @@ export function PlayerProvider({ children }) {
             const songObj = playlistId ? { ...song, playlistId } : song;
             const audio = audioRef.current;
 
-            // Case 1: already have a converted 432Hz URL stored on the song
-            if (song.convertedAudioUrl) {
-                dispatch({ type: "SET_SONG", song: songObj, is432Hz: true });
-                dispatch({ type: "SET_CONVERTING", value: false });
-                audio.src = song.convertedAudioUrl;
-                audio.load();
-                audio.play().catch(() => { });
-                return;
-            }
-
-            // Case 2: check backend cache first
-            try {
-                const cache = await api.checkCache(song.videoId);
-                if (cache.cached) {
-                    dispatch({ type: "SET_SONG", song: songObj, is432Hz: true });
-                    dispatch({ type: "SET_CONVERTING", value: false });
-                    audio.src = api.getFileUrl(cache.filename);
-                    audio.load();
-                    audio.play().catch(() => { });
-                    return;
-                }
-            } catch { /* ignore */ }
-
-            // Case 3: play stream immediately, start background conversion
-            dispatch({ type: "SET_SONG", song: songObj, is432Hz: false });
-            dispatch({ type: "SET_CONVERTING", value: true, progress: "downloading" });
+            // Reset state
+            dispatch({ type: "SET_SONG", song: songObj, is432Hz: false, details: null });
+            dispatch({ type: "SET_CONVERTING", value: true, progress: "Analyzing tuning..." });
+            
+            // Instantly start playback (it will start at 440Hz initially while we analyze)
             audio.src = api.getStreamUrl(song.videoId);
+            audio.playbackRate = 1.0;
+            audio.preservesPitch = true;
+            if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = true;
+            if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = true;
+            
             audio.load();
             audio.play().catch(() => { });
 
-            // Fire off conversion in background
+            // Fetch tuning detection in the background
             try {
-                const result = await api.startConversion(song.videoId);
-                if (result.status === "completed") {
-                    // Already cached (race won) — swap now
-                    const savedTime = audio.currentTime;
-                    const wasPlaying = !audio.paused;
-                    audio.src = api.getFileUrl(result.fileName || result.fileUrl?.split("/api/files/")[1]);
-                    audio.load();
-                    audio.currentTime = savedTime;
-                    if (wasPlaying) audio.play().catch(() => { });
-                    dispatch({ type: "SET_CONVERTING", value: false });
-                    dispatch({ type: "SET_432HZ", value: true });
-                } else if (result.jobId) {
-                    startPolling(result.jobId);
-                }
-            } catch {
+                const res = await api.getTuning(song.videoId);
                 dispatch({ type: "SET_CONVERTING", value: false });
+                
+                // If the song is already 432Hz natively, we do nothing.
+                if (res.tuning === "432Hz") {
+                    console.log("Song is natively 432Hz!", res);
+                    dispatch({ type: "SET_432HZ", value: true, details: res });
+                } else {
+                    // It's 440Hz or unknown: Drop frequency via playbackRate to instantly hit 432Hz
+                    console.log("Song is 440Hz. Pitch shifting to 432Hz via playbackRate...", res);
+                    audio.playbackRate = 432 / 440; // 0.981818
+                    audio.preservesPitch = false;
+                    if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
+                    if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
+                    
+                    dispatch({ type: "SET_432HZ", value: true, details: res });
+                }
+            } catch (err) {
+                console.error("Tuning detection failed, defaulting to pitch shift:", err);
+                dispatch({ type: "SET_CONVERTING", value: false });
+                
+                // Fallback to applying pitch shift just in case
+                audio.playbackRate = 432 / 440;
+                audio.preservesPitch = false;
+                if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
+                if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
+                
+                dispatch({ type: "SET_432HZ", value: true, details: { reasoning: "Detection failed, forced 432Hz" } });
             }
         },
-        [startPolling, stopPolling]
+        []
     );
 
     // ── Queue navigation ────────────────────────────────────────────────────

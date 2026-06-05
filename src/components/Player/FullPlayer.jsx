@@ -5,7 +5,7 @@ import { usePlayer } from "../../context/PlayerContext.jsx";
 import { ProgressBar, PlaybackButtons, VolumeControl } from "./PlayerControls.jsx";
 
 export default function FullPlayer({ isOpen, onClose, favoriteSongs, onToggleFavorite }) {
-    const { currentSong, is432Hz, isConverting } = usePlayer();
+    const { currentSong, is432Hz, isConverting, tuningDetails, conversionProgress } = usePlayer();
     const isFav = favoriteSongs?.some((s) => s.id === currentSong?.id);
 
     return (
@@ -89,8 +89,10 @@ export default function FullPlayer({ isOpen, onClose, favoriteSongs, onToggleFav
                                         ) : (
                                             <Zap size={12} className="fill-current" />
                                         )}
-                                        <span className="text-xs font-semibold">
-                                            {is432Hz ? "432Hz" : "Converting…"}
+                                        <span className="text-xs font-semibold whitespace-nowrap">
+                                            {isConverting ? (conversionProgress || "Analyzing tuning...") : (
+                                                tuningDetails?.tuning === "432Hz" ? "Native 432Hz" : "Pitch Shifted to 432Hz"
+                                            )}
                                         </span>
                                     </motion.div>
                                 )}

@@ -63,7 +63,7 @@ export default function MiniPlayer({ favoriteSongs, onToggleFavorite, onExpand, 
                                             <span className="text-[10px] text-emerald-400 font-medium shrink-0">432Hz</span>
                                         )}
                                         {isConverting && !is432Hz && (
-                                            <span className="text-[10px] text-indigo-400 font-medium shrink-0">converting…</span>
+                                            <span className="text-[10px] text-indigo-400 font-medium shrink-0">analyzing...</span>
                                         )}
                                     </div>
                                 </div>

@@ -24,24 +24,11 @@ export async function searchYouTube(query, limit = 12) {
 }
 
 // ---------------------------------------------------------------------------
-// Cache
+// Tuning Detection
 // ---------------------------------------------------------------------------
 
-export async function checkCache(videoId) {
-    const res = await fetch(`${API_BASE}/cache/${videoId}`);
-    return json(res);
-}
-
-// ---------------------------------------------------------------------------
-// Metadata
-// ---------------------------------------------------------------------------
-
-export async function getMetadata(videoId) {
-    const res = await fetch(`${API_BASE}/metadata`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId }),
-    });
+export async function getTuning(videoId) {
+    const res = await fetch(`${API_BASE}/tuning/${videoId}`);
     return json(res);
 }
 
@@ -63,29 +50,7 @@ export function getDownloadUrl(filename) {
     return `${API_BASE}/download/${filename}`;
 }
 
-// ---------------------------------------------------------------------------
-// Conversion (async — returns immediately)
-// ---------------------------------------------------------------------------
 
-/**
- * Start a background 432Hz conversion job.
- * If the file is already cached, returns { status: "completed", fileUrl, fromCache: true }
- * Otherwise returns { status: "processing", jobId }
- */
-export async function startConversion(videoId, options = {}) {
-    const { convertTo432Hz = true, format = "mp3", quality = "192k", method = "auto" } = options;
-    const res = await fetch(`${API_BASE}/convert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId, convertTo432Hz, format, quality, method }),
-    });
-    return json(res);
-}
-
-export async function getJobStatus(jobId) {
-    const res = await fetch(`${API_BASE}/status/${jobId}`);
-    return json(res);
-}
 
 // ---------------------------------------------------------------------------
 // Health
