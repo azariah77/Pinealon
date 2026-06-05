@@ -3,6 +3,14 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
+const PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.smnz.de",
+    "https://api.piped.projectsegfau.lt",
+    "https://pipedapi.lunar.icu",
+    "https://piped-api.garudalinux.org"
+];
+
 async function json(res) {
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -17,6 +25,32 @@ async function json(res) {
 
 /** @returns {{ videoId, title, artist, duration, thumbnail, cached }[] } */
 export async function searchYouTube(query, limit = 12) {
+    // Try Piped APIs first for 0-latency search that bypasses Hugging Face
+    for (const instance of PIPED_INSTANCES) {
+        try {
+            const res = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            
+            if (data && data.items) {
+                const results = data.items.slice(0, limit).map(item => {
+                    const videoId = item.url.split('v=')[1] || item.url.split('/').pop();
+                    return {
+                        videoId,
+                        title: item.title,
+                        artist: item.uploaderName || item.uploader || "Unknown Artist",
+                        duration: item.duration,
+                        thumbnail: item.thumbnail
+                    };
+                });
+                return { results, query, count: results.length };
+            }
+        } catch (e) {
+            console.warn(`Piped search failed for ${instance}, trying next...`);
+        }
+    }
+
+    // Fallback to Hugging Face backend
     const res = await fetch(
         `${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`
     );
@@ -35,14 +69,6 @@ export async function getTuning(videoId) {
 // ---------------------------------------------------------------------------
 // Streaming (Direct Piped API for 0-Latency)
 // ---------------------------------------------------------------------------
-
-const PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.smnz.de",
-    "https://api.piped.projectsegfau.lt",
-    "https://pipedapi.lunar.icu",
-    "https://piped-api.garudalinux.org"
-];
 
 /** 
  * Gets the raw audio URL directly from a public Piped instance, bypassing our backend.
