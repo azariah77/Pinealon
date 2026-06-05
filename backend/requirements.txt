@@ -3,4 +3,5 @@ flask-cors==4.0.0
 yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@master
 requests
 numpy
-scipy
+scipylibrosa
+soundfile
