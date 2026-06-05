@@ -1,8 +1,8 @@
 FROM python:3.10-slim
 
-# Install ffmpeg and nodejs (for yt-dlp YouTube JS bot-check bypass)
+# Install ffmpeg, nodejs, and rubberband-cli for advanced audio processing
 RUN apt-get update && \
-    apt-get install -y ffmpeg git nodejs && \
+    apt-get install -y ffmpeg git nodejs rubberband-cli && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
