@@ -29,25 +29,32 @@ class YouTubeAPI:
             "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         }
 
-    def get_stream_url(self, video_id: str) -> str:
+    def get_stream_url(self, video_id: str) -> tuple[str, dict]:
         opts = dict(self.ydl_opts)
         opts["format"] = "bestaudio/best"
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            if "url" in info:
-                return info["url"]
-            if info.get("requested_formats"):
-                return info["requested_formats"][0]["url"]
-            raise Exception("No stream URL found")
+            url = info.get("url")
+            if not url and info.get("requested_formats"):
+                url = info["requested_formats"][0]["url"]
+            if not url:
+                raise Exception("No stream URL found")
+            return url, info.get("http_headers", {})
 
     def detect_tuning(self, video_id: str) -> dict:
         try:
-            stream_url = self.get_stream_url(video_id)
+            stream_url, yt_headers = self.get_stream_url(video_id)
             tmp_wav = str(TEMP_DIR / f"tune_{uuid.uuid4().hex}.wav")
             
+            # Prepare headers for ffmpeg to bypass throttling
+            header_args = []
+            if yt_headers:
+                header_str = "".join(f"{k}: {v}\r\n" for k, v in yt_headers.items())
+                header_args = ["-headers", header_str]
+
             # Download exactly 10 seconds of the stream using ffmpeg
             logger.info(f"Downloading 10s chunk for tuning detection: {video_id}")
-            subprocess.run(["ffmpeg", "-i", stream_url, "-t", "10", "-y", tmp_wav], 
+            subprocess.run(["ffmpeg", *header_args, "-i", stream_url, "-t", "10", "-y", tmp_wav], 
                            capture_output=True, check=True)
             
             # Run the highly optimized rubberband-compatible detection
@@ -131,12 +138,12 @@ def stream_audio(video_id):
 
     try:
         logger.info(f"Stream request for video: {video_id}")
-        stream_url = yt_api.get_stream_url(video_id)
+        stream_url, yt_headers = yt_api.get_stream_url(video_id)
         
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            "Range": request.headers.get("Range", "bytes=0-"),
-        }
+        headers = {**yt_headers}
+        if "Range" in request.headers:
+            headers["Range"] = request.headers["Range"]
+            
         upstream = req_lib.get(stream_url, headers=headers, stream=True, timeout=60)
         
         resp_headers = {
@@ -179,13 +186,19 @@ def download_432hz(video_id):
                 mimetype="audio/mpeg"
             )
 
-        stream_url = yt_api.get_stream_url(video_id)
+        stream_url, yt_headers = yt_api.get_stream_url(video_id)
         
         # Download stream to a temporary full-length audio file
         tmp_input = str(TEMP_DIR / f"dl_input_{video_id}_{uuid.uuid4().hex}.mp3")
         logger.info("Downloading full stream to temp file...")
+        
+        header_args = []
+        if yt_headers:
+            header_str = "".join(f"{k}: {v}\r\n" for k, v in yt_headers.items())
+            header_args = ["-headers", header_str]
+
         subprocess.run([
-            "ffmpeg", "-i", stream_url, 
+            "ffmpeg", *header_args, "-i", stream_url, 
             "-b:a", "192k", "-y", tmp_input
         ], capture_output=True, check=True)
         
