@@ -170,21 +170,19 @@ export function PlayerProvider({ children }) {
             if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
             audio.playbackRate = 432 / 440; // 0.98181818...
 
+            // Fix for cross-origin audio streaming (Cloudflare/Render) so browser can send Range requests properly
+            audio.crossOrigin = "anonymous";
             audio.src = streamUrl;
             audio.load();
 
             // Mark as 432Hz right away (we know we're always shifting)
             dispatch({ type: "SET_432HZ", value: true, details: { tuning: "440Hz→432Hz", reasoning: "Client-side pitch shift applied" } });
 
-            // Use "canplay" to trigger play so we know the browser has buffered enough
-            const startPlayback = () => {
-                audio.play().catch((err) => {
-                    console.warn("Autoplay blocked or stream error:", err);
-                    dispatch({ type: "SET_PLAYING", value: false });
-                });
-                audio.removeEventListener("canplay", startPlayback);
-            };
-            audio.addEventListener("canplay", startPlayback, { once: true });
+            // Play immediately to force the browser to buffer and bypass Autoplay delay blocks
+            audio.play().catch((err) => {
+                console.warn("Autoplay blocked or stream error:", err);
+                dispatch({ type: "SET_PLAYING", value: false });
+            });
         },
         []
     );
