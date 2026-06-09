@@ -6,14 +6,6 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
-const PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.smnz.de",
-    "https://api.piped.projectsegfau.lt",
-    "https://pipedapi.lunar.icu",
-    "https://piped-api.garudalinux.org"
-];
-
 async function json(res) {
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -23,38 +15,13 @@ async function json(res) {
 }
 
 // ---------------------------------------------------------------------------
-// Search
+// Search — uses the Vercel serverless function at /api/search
+// (InnerTube API from Vercel's clean IPs, no yt-dlp needed)
 // ---------------------------------------------------------------------------
 
 /** @returns {{ videoId, title, artist, duration, thumbnail, cached }[] } */
 export async function searchYouTube(query, limit = 12) {
-    // Try Piped APIs first for low-latency search (search only, not streaming)
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            const res = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`);
-            if (!res.ok) continue;
-            const data = await res.json();
-            
-            if (data && data.items) {
-                const results = data.items.slice(0, limit).map(item => {
-                    const videoId = item.url.split('v=')[1] || item.url.split('/').pop();
-                    return {
-                        videoId,
-                        title: item.title,
-                        artist: item.uploaderName || item.uploader || "Unknown Artist",
-                        duration: item.duration,
-                        thumbnail: item.thumbnail
-                    };
-                });
-                return { results, query, count: results.length };
-            }
-        } catch (e) {
-            console.warn(`Piped search failed for ${instance}, trying next...`);
-        }
-    }
-
-    // Fallback to our own backend if all Piped APIs fail
-    const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`);
     return json(res);
 }
 
