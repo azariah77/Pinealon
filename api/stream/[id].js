@@ -3,7 +3,7 @@
 // Priority: Piped proxy instances → HF backend fallback.
 // This takes priority over the vercel.json rewrite for /api/stream/*.
 
-const HF_BACKEND = 'https://joshuaazz-pinealon-backend.hf.space';
+const HF_BACKEND = 'https://pinealon-backend.onrender.com';
 
 // Piped instances that proxy YouTube audio (so browser can play without CORS issues)
 const PIPED_INSTANCES = [

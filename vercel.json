@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/api/download/(.*)",
-      "destination": "https://joshuaazz-pinealon-backend.hf.space/api/download/$1"
+      "destination": "https://pinealon-backend.onrender.com/api/download/$1"
     },
     {
       "source": "/api/tuning/(.*)",
-      "destination": "https://joshuaazz-pinealon-backend.hf.space/api/tuning/$1"
+      "destination": "https://pinealon-backend.onrender.com/api/tuning/$1"
     },
     {
       "source": "/api/health",
-      "destination": "https://joshuaazz-pinealon-backend.hf.space/api/health"
+      "destination": "https://pinealon-backend.onrender.com/api/health"
     }
   ]
 }
