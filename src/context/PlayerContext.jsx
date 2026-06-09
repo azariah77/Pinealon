@@ -173,43 +173,14 @@ export function PlayerProvider({ children }) {
             audio.src = streamUrl;
             audio.load();
 
-            // Use "canplay" to trigger play so we know the browser has buffered enough
-            const startPlayback = () => {
-                audio.play().catch((err) => {
-                    console.warn("Autoplay blocked or stream error:", err);
-                    dispatch({ type: "SET_PLAYING", value: false });
-                });
-                audio.removeEventListener("canplay", startPlayback);
-            };
-            audio.addEventListener("canplay", startPlayback, { once: true });
-
             // Mark as 432Hz right away (we know we're always shifting)
             dispatch({ type: "SET_432HZ", value: true, details: { tuning: "440Hz→432Hz", reasoning: "Client-side pitch shift applied" } });
 
-            // Now run tuning detection in the background (for display accuracy only —
-            // it no longer changes playback, just updates the badge text)
-            dispatch({ type: "SET_CONVERTING", value: true, progress: "Analyzing tuning..." });
-            try {
-                const res = await api.getTuning(song.videoId);
-                dispatch({ type: "SET_CONVERTING", value: false });
-                
-                if (res.tuning === "432Hz") {
-                    console.log("Song is natively 432Hz! Reverting pitch shift.");
-                    audio.playbackRate = 1.0;
-                    audio.preservesPitch = true;
-                    if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = true;
-                    if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = true;
-                    dispatch({ type: "SET_432HZ", value: true, details: { ...res, reasoning: "Native 432Hz detected, no shift needed" } });
-                } else {
-                    dispatch({ type: "SET_432HZ", value: true, details: res });
-                }
-                
-                console.log("Tuning detection result:", res);
-            } catch (err) {
-                console.warn("Tuning detection failed (non-critical):", err);
-                dispatch({ type: "SET_CONVERTING", value: false });
-                // Playback is unaffected — we already applied the shift.
-            }
+            // Play immediately to bypass browser autoplay blocks (browser will automatically wait for buffer)
+            audio.play().catch((err) => {
+                console.warn("Autoplay blocked or stream error:", err);
+                dispatch({ type: "SET_PLAYING", value: false });
+            });
         },
         []
     );
