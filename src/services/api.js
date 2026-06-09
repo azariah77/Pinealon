@@ -4,7 +4,7 @@
 // In development: Vite proxies /api/* → http://localhost:3001/api/*
 // In production:  VITE_API_URL should be set to the deployed backend URL.
 
-const API_BASE = import.meta.env.VITE_API_URL || "https://pinealon-backend.onrender.com/api";
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 async function json(res) {
     if (!res.ok) {

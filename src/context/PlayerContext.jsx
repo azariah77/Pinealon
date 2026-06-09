@@ -176,11 +176,15 @@ export function PlayerProvider({ children }) {
             // Mark as 432Hz right away (we know we're always shifting)
             dispatch({ type: "SET_432HZ", value: true, details: { tuning: "440Hz→432Hz", reasoning: "Client-side pitch shift applied" } });
 
-            // Play immediately to bypass browser autoplay blocks (browser will automatically wait for buffer)
-            audio.play().catch((err) => {
-                console.warn("Autoplay blocked or stream error:", err);
-                dispatch({ type: "SET_PLAYING", value: false });
-            });
+            // Use "canplay" to trigger play so we know the browser has buffered enough
+            const startPlayback = () => {
+                audio.play().catch((err) => {
+                    console.warn("Autoplay blocked or stream error:", err);
+                    dispatch({ type: "SET_PLAYING", value: false });
+                });
+                audio.removeEventListener("canplay", startPlayback);
+            };
+            audio.addEventListener("canplay", startPlayback, { once: true });
         },
         []
     );
