@@ -77,37 +77,57 @@ yt_api = YouTubeAPI()
 # ── Search ──────────────────────────────────────────────────────────────────
 @app.route("/api/search", methods=["GET"])
 def search_youtube():
-    """Search YouTube"""
+    """Search YouTube using InnerTube API to bypass IP blocks"""
     query = request.args.get("q", "").strip()
     limit = min(int(request.args.get("limit", 12)), 25)
 
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": True,
-        "skip_download": True,
-        "default_search": "ytsearch",
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            raw = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+        # We use the internal YouTube API (InnerTube) instead of yt-dlp to bypass bot protections
+        payload = {
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20210721.00.00"}},
+            "query": query
+        }
+        r = req_lib.post("https://www.youtube.com/youtubei/v1/search", json=payload, timeout=10)
+        r.raise_for_status()
+        
+        data = r.json()
+        contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
+        
+        items = []
+        if contents:
+            items = contents[0].get('itemSectionRenderer', {}).get('contents', [])
 
         results = []
-        for entry in (raw.get("entries") or []):
-            vid_id = entry.get("id") or entry.get("url", "").split("v=")[-1]
-            if not vid_id:
-                continue
-            results.append({
-                "videoId": vid_id,
-                "title": entry.get("title", "Unknown"),
-                "artist": entry.get("uploader") or entry.get("channel") or "Unknown Artist",
-                "duration": entry.get("duration") or 0,
-                "thumbnail": entry.get("thumbnail") or f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"
-            })
+        for i in items:
+            if len(results) >= limit:
+                break
+            if 'videoRenderer' in i:
+                v = i['videoRenderer']
+                if not v.get('lengthText'):
+                    continue
+                
+                duration_text = v['lengthText'].get('simpleText')
+                if not duration_text and 'runs' in v['lengthText']:
+                    duration_text = v['lengthText']['runs'][0]['text']
+                    
+                artist_text = v['ownerText'].get('simpleText')
+                if not artist_text and 'runs' in v['ownerText']:
+                    artist_text = v['ownerText']['runs'][0]['text']
+                    
+                title_text = v['title'].get('simpleText')
+                if not title_text and 'runs' in v['title']:
+                    title_text = v['title']['runs'][0]['text']
+
+                results.append({
+                    "videoId": v['videoId'],
+                    "title": title_text or "Unknown",
+                    "artist": artist_text or "Unknown Artist",
+                    "duration": duration_text or "0:00",
+                    "thumbnail": v['thumbnail']['thumbnails'][-1]['url'] if v.get('thumbnail') and v['thumbnail'].get('thumbnails') else f"https://img.youtube.com/vi/{v['videoId']}/hqdefault.jpg"
+                })
 
         return jsonify({"results": results, "query": query, "count": len(results)})
 
