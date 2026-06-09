@@ -26,20 +26,37 @@ class YouTubeAPI:
             "no_warnings": True,
             "legacyserverconnect": True,
             "source_address": "0.0.0.0",
-            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            # Bypass SABR: use 'tv' client which still returns direct URLs
+            "extractor_args": {"youtube": {"player_client": ["tv", "default"]}},
         }
 
     def get_stream_url(self, video_id: str) -> tuple[str, dict]:
-        opts = dict(self.ydl_opts)
-        opts["format"] = "bestaudio/best"
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            url = info.get("url")
-            if not url and info.get("requested_formats"):
-                url = info["requested_formats"][0]["url"]
-            if not url:
-                raise Exception("No stream URL found")
-            return url, info.get("http_headers", {})
+        # Try multiple format strategies to handle SABR restrictions
+        format_chains = [
+            "bestaudio/best",
+            "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+            "worstaudio/worst",  # last resort: at least get SOMETHING
+        ]
+        
+        last_error = None
+        for fmt in format_chains:
+            try:
+                opts = dict(self.ydl_opts)
+                opts["format"] = fmt
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                    url = info.get("url")
+                    if not url and info.get("requested_formats"):
+                        url = info["requested_formats"][0]["url"]
+                    if url:
+                        return url, info.get("http_headers", {})
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Format '{fmt}' failed for {video_id}: {e}")
+                continue
+        
+        raise Exception(f"No stream URL found after all format attempts: {last_error}")
 
     def detect_tuning(self, video_id: str) -> dict:
         try:

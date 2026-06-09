@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/stream/(.*)",
-      "destination": "https://joshuaazz-pinealon-backend.hf.space/api/stream/$1"
-    },
-    {
       "source": "/api/download/(.*)",
       "destination": "https://joshuaazz-pinealon-backend.hf.space/api/download/$1"
     },
