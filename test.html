@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <audio id="player" controls src="https://pinealon-backend.onrender.com/api/stream/dQw4w9WgXcQ" crossorigin="anonymous"></audio>
+  <button onclick="document.getElementById('player').play()">Play</button>
+  <script>
+    const a = document.getElementById('player');
+    a.addEventListener('canplay', () => console.log('canplay fired'));
+    a.addEventListener('waiting', () => console.log('waiting fired'));
+    a.addEventListener('durationchange', () => console.log('duration:', a.duration));
+    a.addEventListener('error', (e) => console.log('error:', e));
+  </script>
+</body>
+</html>

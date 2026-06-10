@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">pinealon</string>
+    <string name="title_activity_main">pinealon</string>
+    <string name="package_name">com.pinealon.app</string>
+    <string name="custom_url_scheme">com.pinealon.app</string>
+</resources>
